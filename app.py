@@ -749,9 +749,7 @@ def main():
     elif page == "Advanced Analytics":
         from pages.analytics import show_analytics
         show_analytics()
-    elif page == "Database Management":
-        from pages.database_management import show_database_management
-        show_database_management()
+
     elif page == "System Settings":
         from pages.settings import show_settings
         show_settings()
@@ -1077,8 +1075,8 @@ def show_realtime_performance_metrics():
     # Create metrics in a grid layout
     col1, col2, col3, col4 = st.columns(4)
     
-    # Get recent data for metrics
-    data = st.session_state.data_manager.get_recent_data(minutes=5)
+    # Get recent data for metrics from in-memory storage
+    recent_data = [d for d in st.session_state.density_data if (datetime.now() - d['timestamp']).seconds < 300]
     
     with col1:
         fps = 30 if st.session_state.get('is_monitoring', False) else 0
@@ -1093,7 +1091,7 @@ def show_realtime_performance_metrics():
         st.metric("AI Accuracy", f"{accuracy:.1f}%", help="Model prediction accuracy")
     
     with col4:
-        throughput = len(data) if not data.empty else 0
+        throughput = len(recent_data)
         st.metric("Data Points", throughput, help="Data points in last 5 minutes")
 
 def show_enhanced_alert_panel():
