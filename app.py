@@ -186,8 +186,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# Initialize session state with PostgreSQL database
+if 'data_service' not in st.session_state:
+    from database.data_service import PostgreSQLDataService
+    st.session_state.data_service = PostgreSQLDataService()
 if 'data_manager' not in st.session_state:
+    # Keep legacy data manager for compatibility
     st.session_state.data_manager = DataManager()
 if 'alert_system' not in st.session_state:
     st.session_state.alert_system = AlertSystem()
