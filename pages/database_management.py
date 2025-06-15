@@ -566,7 +566,7 @@ def show_alert_history_tab(data_service):
                         success = data_service.acknowledge_alert(alert['id'], "operator")
                         if success:
                             st.success("Alert acknowledged!")
-                            st.experimental_rerun()
+                            st.rerun()
         
         # Alert history table
         st.markdown("**Complete Alert History**")

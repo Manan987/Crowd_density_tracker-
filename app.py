@@ -226,6 +226,7 @@ def main():
             ("🚨", "Alert Management"),
             ("📊", "Analytics Dashboard"), 
             ("📈", "Advanced Analytics"),
+            ("🗄️", "Database Management"),
             ("⚙️", "System Settings"),
             ("💻", "System Status")
         ]
@@ -324,6 +325,9 @@ def main():
     elif page == "Advanced Analytics":
         from pages.analytics import show_analytics
         show_analytics()
+    elif page == "Database Management":
+        from pages.database_management import show_database_management
+        show_database_management()
     elif page == "System Settings":
         from pages.settings import show_settings
         show_settings()
