@@ -16,6 +16,31 @@ class VideoProcessor:
         self.processing_thread = None
         self.is_processing = False
         
+    def create_advanced_overlay(self, frame: np.ndarray, density_map: np.ndarray, 
+                              alpha: float = 0.6, show_zones: bool = True, 
+                              show_flow: bool = False) -> np.ndarray:
+        """Create advanced overlay with multiple visualization layers"""
+        try:
+            # Start with basic heatmap
+            result_frame = self.create_heatmap_overlay(frame, density_map, alpha)
+            
+            # Add density zones if requested
+            if show_zones:
+                result_frame = self.add_density_zones_overlay(result_frame)
+            
+            # Add flow vectors if requested
+            if show_flow:
+                result_frame = self.add_flow_vectors_overlay(result_frame)
+            
+            # Add advanced info panel
+            result_frame = self.add_advanced_info_panel(result_frame, density_map)
+            
+            return result_frame
+            
+        except Exception as e:
+            print(f"Error creating advanced overlay: {e}")
+            return frame
+    
     def create_heatmap_overlay(self, frame: np.ndarray, density_map: np.ndarray, 
                              alpha: float = 0.6) -> np.ndarray:
         """
@@ -300,6 +325,209 @@ class VideoProcessor:
             
         except Exception as e:
             print(f"Error enhancing frame quality: {e}")
+            return frame
+    
+    def add_density_zones_overlay(self, frame: np.ndarray) -> np.ndarray:
+        """Add density zone overlays to the frame"""
+        try:
+            h, w = frame.shape[:2]
+            
+            # Define monitoring zones
+            zones = [
+                {"name": "Entry Zone", "coords": (50, 50, 200, 150), "color": (0, 255, 255)},
+                {"name": "Main Area", "coords": (250, 100, 500, 300), "color": (255, 255, 0)},
+                {"name": "Exit Zone", "coords": (w-200, h-150, w-50, h-50), "color": (255, 0, 255)}
+            ]
+            
+            for zone in zones:
+                x1, y1, x2, y2 = zone["coords"]
+                x1, y1, x2, y2 = max(0, x1), max(0, y1), min(w, x2), min(h, y2)
+                
+                # Draw zone rectangle
+                cv2.rectangle(frame, (x1, y1), (x2, y2), zone["color"], 2)
+                
+                # Add zone label with background
+                label = zone["name"]
+                (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(frame, (x1, y1-text_h-10), (x1+text_w+10, y1), zone["color"], -1)
+                cv2.putText(frame, label, (x1+5, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+            
+            return frame
+            
+        except Exception as e:
+            print(f"Error adding density zones: {e}")
+            return frame
+    
+    def add_flow_vectors_overlay(self, frame: np.ndarray) -> np.ndarray:
+        """Add crowd flow vector overlays"""
+        try:
+            h, w = frame.shape[:2]
+            
+            # Generate sample flow vectors (in real implementation, these would come from optical flow)
+            grid_size = 60
+            for y in range(grid_size, h-grid_size, grid_size):
+                for x in range(grid_size, w-grid_size, grid_size):
+                    # Simulate flow towards exits
+                    flow_x = np.random.normal(0, 20)
+                    flow_y = np.random.normal(0, 20)
+                    
+                    # Draw flow arrow
+                    end_x = int(x + flow_x)
+                    end_y = int(y + flow_y)
+                    
+                    cv2.arrowedLine(frame, (x, y), (end_x, end_y), (0, 255, 0), 2, tipLength=0.3)
+            
+            return frame
+            
+        except Exception as e:
+            print(f"Error adding flow vectors: {e}")
+            return frame
+    
+    def add_advanced_info_panel(self, frame: np.ndarray, density_map: np.ndarray) -> np.ndarray:
+        """Add advanced information panel with comprehensive stats"""
+        try:
+            h, w = frame.shape[:2]
+            
+            # Calculate advanced statistics
+            total_density = np.sum(density_map)
+            max_density = np.max(density_map)
+            avg_density = np.mean(density_map)
+            density_variance = np.var(density_map)
+            
+            # Hotspot detection
+            hotspot_threshold = avg_density + 2 * np.sqrt(density_variance)
+            hotspot_count = np.sum(density_map > hotspot_threshold)
+            
+            # Create info panel background
+            panel_width = 300
+            panel_height = 180
+            panel_x = w - panel_width - 10
+            panel_y = 10
+            
+            # Semi-transparent background
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + panel_width, panel_y + panel_height), 
+                         (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+            
+            # Border
+            cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_width, panel_y + panel_height), 
+                         (255, 255, 255), 2)
+            
+            # Add title
+            cv2.putText(frame, "CROWD ANALYTICS", (panel_x + 10, panel_y + 25), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Add statistics
+            stats_text = [
+                f"Total Count: {int(total_density)}",
+                f"Peak Density: {max_density:.2f}",
+                f"Avg Density: {avg_density:.2f}",
+                f"Variance: {density_variance:.2f}",
+                f"Hotspots: {hotspot_count}",
+                f"Risk Level: {'HIGH' if max_density > 3.0 else 'MEDIUM' if max_density > 1.5 else 'LOW'}"
+            ]
+            
+            for i, text in enumerate(stats_text):
+                y_pos = panel_y + 50 + (i * 20)
+                color = (0, 255, 0) if i == len(stats_text)-1 and max_density < 1.5 else \
+                        (0, 255, 255) if i == len(stats_text)-1 and max_density < 3.0 else \
+                        (0, 0, 255) if i == len(stats_text)-1 else (255, 255, 255)
+                
+                cv2.putText(frame, text, (panel_x + 10, y_pos), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+            
+            # Add timestamp
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            cv2.putText(frame, f"Updated: {timestamp}", (panel_x + 10, panel_y + panel_height - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+            
+            return frame
+            
+        except Exception as e:
+            print(f"Error adding info panel: {e}")
+            return frame
+    
+    def detect_crowd_patterns(self, frame: np.ndarray) -> dict:
+        """Detect and analyze crowd movement patterns"""
+        try:
+            # Convert to grayscale for analysis
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Apply Gaussian blur to reduce noise
+            blurred = cv2.GaussianBlur(gray, (21, 21), 0)
+            
+            # Detect edges for crowd boundaries
+            edges = cv2.Canny(blurred, 50, 150)
+            
+            # Find contours representing crowd clusters
+            contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Analyze crowd clusters
+            clusters = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area > 500:  # Filter small noise
+                    x, y, w, h = cv2.boundingRect(contour)
+                    aspect_ratio = w / h if h > 0 else 0
+                    density_estimate = area / (w * h) if (w * h) > 0 else 0
+                    
+                    clusters.append({
+                        'bbox': (x, y, w, h),
+                        'area': area,
+                        'aspect_ratio': aspect_ratio,
+                        'density': density_estimate,
+                        'center': (x + w//2, y + h//2)
+                    })
+            
+            # Calculate movement vectors between clusters
+            movement_vectors = []
+            if len(clusters) >= 2:
+                for i in range(len(clusters)-1):
+                    c1, c2 = clusters[i], clusters[i+1]
+                    vector = (c2['center'][0] - c1['center'][0], c2['center'][1] - c1['center'][1])
+                    movement_vectors.append(vector)
+            
+            return {
+                'cluster_count': len(clusters),
+                'total_crowd_area': sum(c['area'] for c in clusters),
+                'average_cluster_size': np.mean([c['area'] for c in clusters]) if clusters else 0,
+                'movement_vectors': movement_vectors,
+                'crowd_dispersion': np.std([c['center'][0] for c in clusters]) if clusters else 0
+            }
+            
+        except Exception as e:
+            print(f"Error detecting crowd patterns: {e}")
+            return {}
+    
+    def add_safety_zone_indicators(self, frame: np.ndarray, safety_zones: list) -> np.ndarray:
+        """Add safety zone indicators to the frame"""
+        try:
+            for zone in safety_zones:
+                x, y, w, h = zone.get('bounds', (0, 0, 100, 100))
+                status = zone.get('status', 'safe')
+                
+                # Color coding for safety status
+                color_map = {
+                    'safe': (0, 255, 0),      # Green
+                    'caution': (0, 255, 255), # Yellow
+                    'danger': (0, 0, 255)     # Red
+                }
+                
+                color = color_map.get(status, (128, 128, 128))
+                
+                # Draw zone boundary
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
+                
+                # Add status indicator
+                cv2.circle(frame, (x + w - 20, y + 20), 15, color, -1)
+                cv2.putText(frame, status.upper()[:1], (x + w - 25, y + 25), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+            
+            return frame
+            
+        except Exception as e:
+            print(f"Error adding safety zones: {e}")
             return frame
     
     def get_processing_stats(self) -> dict:

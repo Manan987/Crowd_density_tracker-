@@ -219,6 +219,7 @@ def main():
         page_options = [
             ("🎬", "Real-time Monitoring"),
             ("🎯", "Advanced Monitoring"),
+            ("🚨", "Alert Management"),
             ("📊", "Analytics Dashboard"), 
             ("📈", "Advanced Analytics"),
             ("⚙️", "System Settings"),
@@ -307,6 +308,12 @@ def main():
     # Main content based on selected page
     if page == "Real-time Monitoring":
         show_monitoring_page()
+    elif page == "Advanced Monitoring":
+        from components.advanced_visualizations import show_advanced_monitoring_dashboard
+        show_advanced_monitoring_dashboard()
+    elif page == "Alert Management":
+        from components.real_time_alerts import show_real_time_alert_interface
+        show_real_time_alert_interface()
     elif page == "Analytics Dashboard":
         from pages.dashboard import show_dashboard
         show_dashboard()
