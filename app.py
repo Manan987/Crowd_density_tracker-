@@ -10,7 +10,7 @@ import threading
 from models.crowd_density_model import CrowdDensityEstimator
 from utils.video_processor import VideoProcessor
 from utils.alert_system import AlertSystem
-from utils.data_manager import DataManager
+# Removed database dependency
 
 # Page configuration
 st.set_page_config(
@@ -563,13 +563,18 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state with PostgreSQL database
-if 'data_service' not in st.session_state:
-    from database.data_service import PostgreSQLDataService
-    st.session_state.data_service = PostgreSQLDataService()
-if 'data_manager' not in st.session_state:
-    # Keep legacy data manager for compatibility
-    st.session_state.data_manager = DataManager()
+# Initialize session state with simple in-memory storage
+if 'density_data' not in st.session_state:
+    st.session_state.density_data = []
+if 'alert_events' not in st.session_state:
+    st.session_state.alert_events = []
+if 'camera_status' not in st.session_state:
+    st.session_state.camera_status = {
+        'CAM_001': {'status': 'online', 'last_update': datetime.now()},
+        'CAM_002': {'status': 'online', 'last_update': datetime.now()},
+        'CAM_003': {'status': 'online', 'last_update': datetime.now()},
+        'CAM_004': {'status': 'online', 'last_update': datetime.now()}
+    }
 if 'alert_system' not in st.session_state:
     st.session_state.alert_system = AlertSystem()
 if 'model' not in st.session_state:
@@ -645,7 +650,7 @@ def main():
             ("🚨", "Alert Management"),
             ("📊", "Analytics Dashboard"), 
             ("📈", "Advanced Analytics"),
-            ("🗄️", "Database Management"),
+
             ("⚙️", "System Settings"),
             ("💻", "System Status")
         ]
@@ -685,8 +690,7 @@ def main():
             st.metric("Density", f"{current_density:.1f}", "people/m²")
         with col2:
             # Active cameras count
-            data = st.session_state.data_manager.get_recent_data(minutes=5)
-            active_cams = len(data['camera_id'].unique()) if not data.empty else 0
+            active_cams = len([cam for cam, status in st.session_state.camera_status.items() if status['status'] == 'online'])
             st.metric("Active Cams", f"{active_cams}/4")
         
         # System performance indicator
@@ -712,7 +716,8 @@ def main():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Reset", use_container_width=True):
-                st.session_state.data_manager.clear_data()
+                st.session_state.density_data = []
+                st.session_state.alert_events = []
                 st.session_state.is_monitoring = False
                 st.rerun()
         
