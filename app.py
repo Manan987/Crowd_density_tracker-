@@ -8,8 +8,12 @@ from datetime import datetime, timedelta
 import time
 import threading
 from models.crowd_density_model import CrowdDensityEstimator
+from models.enhanced_density_model import EnhancedCrowdDensityEstimator
 from utils.video_processor import VideoProcessor
+from utils.enhanced_video_processor import MultiStreamProcessor
 from utils.alert_system import AlertSystem
+from utils.enhanced_alert_system import EnhancedAlertSystem
+from utils.data_manager import DataManager  # Add this line
 # Removed database dependency
 
 # Page configuration
@@ -581,6 +585,14 @@ if 'model' not in st.session_state:
     st.session_state.model = CrowdDensityEstimator()
 if 'video_processor' not in st.session_state:
     st.session_state.video_processor = VideoProcessor()
+if 'data_manager' not in st.session_state:  # Add this block
+    st.session_state.data_manager = DataManager()
+if 'enhanced_model' not in st.session_state:
+    st.session_state.enhanced_model = EnhancedCrowdDensityEstimator(model_type='csrnet')
+if 'multi_processor' not in st.session_state:
+    st.session_state.multi_processor = MultiStreamProcessor(max_streams=4)
+if 'enhanced_alerts' not in st.session_state:
+    st.session_state.enhanced_alerts = EnhancedAlertSystem()
 if 'is_monitoring' not in st.session_state:
     st.session_state.is_monitoring = False
 if 'current_density' not in st.session_state:
@@ -911,6 +923,21 @@ def show_monitoring_page():
         show_camera_grid_overview()
         show_recent_events_enhanced()
 
+def safe_image_display(video_placeholder, image_data, caption, use_column_width=True):
+    """Safely display image with error handling for missing media files"""
+    try:
+        video_placeholder.image(
+            image_data,
+            caption=caption,
+            use_column_width=use_column_width
+        )
+    except Exception as e:
+        # Handle missing media file errors gracefully
+        if "MediaFileStorageError" in str(e) or "Missing file" in str(e):
+            video_placeholder.warning("🔄 Media file expired. Please refresh or restart monitoring.")
+        else:
+            video_placeholder.error(f"Error displaying image: {str(e)}")
+
 def process_uploaded_video(uploaded_file, camera_id, video_placeholder):
     """Process uploaded video file for crowd density estimation"""
     try:
@@ -918,20 +945,19 @@ def process_uploaded_video(uploaded_file, camera_id, video_placeholder):
         with open("temp_video.mp4", "wb") as f:
             f.write(uploaded_file.read())
         
+        # Process video
         cap = cv2.VideoCapture("temp_video.mp4")
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_delay = 1.0 / fps if fps > 0 else 0.033  # Default to ~30fps
+        frame_delay = 0.1  # Adjust for playback speed
         
         while cap.isOpened() and st.session_state.is_monitoring:
             ret, frame = cap.read()
             if not ret:
-                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Loop video
-                continue
+                break
             
             # Process frame for crowd density
             density_map, crowd_count = st.session_state.model.estimate_density(frame)
             
-            # Calculate density per square meter (assuming 1 pixel = 0.1m for demo)
+            # Calculate density per square meter
             area_m2 = (frame.shape[0] * frame.shape[1]) * (0.1 * 0.1)
             density_per_m2 = crowd_count / area_m2 if area_m2 > 0 else 0
             
@@ -952,11 +978,11 @@ def process_uploaded_video(uploaded_file, camera_id, video_placeholder):
                 camera_id, density_per_m2, crowd_count, alert_level
             )
             
-            # Display frame
-            video_placeholder.image(
+            # Display frame with safe error handling
+            safe_image_display(
+                video_placeholder,
                 heatmap_frame,
-                caption=f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}",
-                use_column_width=True
+                f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}"
             )
             
             time.sleep(frame_delay)
@@ -1005,11 +1031,11 @@ def process_webcam_feed(camera_id, video_placeholder):
                 camera_id, density_per_m2, crowd_count, alert_level
             )
             
-            # Display frame
-            video_placeholder.image(
+            # Display frame with safe error handling
+            safe_image_display(
+                video_placeholder,
                 heatmap_frame,
-                caption=f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}",
-                use_column_width=True
+                f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}"
             )
             
             time.sleep(0.033)  # ~30fps
@@ -1059,11 +1085,11 @@ def simulate_camera_feed(camera_id, video_placeholder):
             camera_id, density_per_m2, crowd_count, alert_level
         )
         
-        # Display frame
-        video_placeholder.image(
+        # Display frame with safe error handling
+        safe_image_display(
+            video_placeholder,
             synthetic_frame,
-            caption=f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}",
-            use_column_width=True
+            f"Camera: {camera_id} | Density: {density_per_m2:.1f} people/m² | Count: {crowd_count}"
         )
         
         time.sleep(1.0)  # Update every second
