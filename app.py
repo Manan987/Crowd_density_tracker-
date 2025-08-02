@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import time
 import threading
+import inspect
 from models.crowd_density_model import CrowdDensityEstimator
 from models.enhanced_density_model import EnhancedCrowdDensityEstimator
 from utils.video_processor import VideoProcessor
@@ -15,6 +16,36 @@ from utils.alert_system import AlertSystem
 from utils.enhanced_alert_system import EnhancedAlertSystem
 from utils.data_manager import DataManager  # Add this line
 # Removed database dependency
+
+# Streamlit version compatibility helpers
+def get_streamlit_version_info():
+    """Get Streamlit version and compatibility info"""
+    try:
+        version = st.__version__
+        major, minor = map(int, version.split('.')[:2])
+        return {
+            'version': version,
+            'major': major,
+            'minor': minor,
+            'supports_use_container_width': major > 1 or (major == 1 and minor >= 28)
+        }
+    except:
+        return {
+            'version': 'unknown',
+            'major': 1,
+            'minor': 28,
+            'supports_use_container_width': True
+        }
+
+def safe_component_kwargs(**kwargs):
+    """Filter kwargs based on Streamlit version compatibility"""
+    version_info = get_streamlit_version_info()
+    
+    # Remove unsupported parameters
+    if not version_info['supports_use_container_width'] and 'use_container_width' in kwargs:
+        kwargs.pop('use_container_width')
+    
+    return kwargs
 
 # Page configuration
 st.set_page_config(
@@ -727,21 +758,21 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Reset", use_container_width=True):
+            if st.button("🔄 Reset"):
                 st.session_state.density_data = []
                 st.session_state.alert_events = []
                 st.session_state.is_monitoring = False
                 st.rerun()
         
         with col2:
-            if st.button("📤 Export", use_container_width=True):
+            if st.button("📤 Export"):
                 st.success("Data exported!")
         
         # Emergency controls
         st.markdown("---")
         st.markdown("### 🚨 Emergency Controls")
         
-        if st.button("🚨 EMERGENCY STOP", type="primary", use_container_width=True):
+        if st.button("🚨 EMERGENCY STOP", type="primary"):
             st.session_state.is_monitoring = False
             st.error("EMERGENCY STOP ACTIVATED!")
             st.balloons()
@@ -863,10 +894,10 @@ def show_monitoring_page():
     with col4:
         st.markdown("**System Control**")
         if st.session_state.get('is_monitoring', False):
-            if st.button("⏹️ Stop", type="secondary", use_container_width=True):
+            if st.button("⏹️ Stop", type="secondary"):
                 st.session_state.is_monitoring = False
         else:
-            if st.button("▶️ Start", type="primary", use_container_width=True):
+            if st.button("▶️ Start", type="primary"):
                 st.session_state.is_monitoring = True
     
     st.markdown('</div>', unsafe_allow_html=True)
@@ -923,18 +954,22 @@ def show_monitoring_page():
         show_camera_grid_overview()
         show_recent_events_enhanced()
 
-def safe_image_display(video_placeholder, image_data, caption, use_column_width=True):
-    """Safely display image with error handling for missing media files"""
+def safe_image_display(video_placeholder, image_data, caption, use_container_width=True):
+    """Safely display image with error handling and version compatibility"""
     try:
-        video_placeholder.image(
-            image_data,
-            caption=caption,
-            use_column_width=use_column_width
-        )
+        # Simple approach - just use basic parameters
+        video_placeholder.image(image_data, caption=caption)
+        
     except Exception as e:
         # Handle missing media file errors gracefully
         if "MediaFileStorageError" in str(e) or "Missing file" in str(e):
             video_placeholder.warning("🔄 Media file expired. Please refresh or restart monitoring.")
+        elif "unexpected keyword argument" in str(e):
+            # Handle version compatibility issues
+            try:
+                video_placeholder.image(image_data, caption=caption)
+            except Exception as fallback_error:
+                video_placeholder.error(f"Error displaying image: {str(fallback_error)}")
         else:
             video_placeholder.error(f"Error displaying image: {str(e)}")
 
@@ -1159,10 +1194,10 @@ def show_enhanced_alert_panel():
     if alert_level != "Normal":
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("✅ Acknowledge", use_container_width=True):
+            if st.button("✅ Acknowledge", ):
                 st.success("Alert acknowledged")
         with col2:
-            if st.button("📞 Contact", use_container_width=True):
+            if st.button("📞 Contact", ):
                 st.info("Emergency services notified")
 
 def show_enhanced_density_stats():
@@ -1219,7 +1254,7 @@ def show_enhanced_density_stats():
                 plot_bgcolor='rgba(0,0,0,0)',
                 paper_bgcolor='rgba(0,0,0,0)'
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig)
     else:
         st.info("Gathering density data...")
 
@@ -1336,8 +1371,7 @@ def show_recent_events():
     
     if not data.empty:
         st.dataframe(
-            data[['timestamp', 'camera_id', 'alert_level', 'density']].tail(5),
-            use_container_width=True
+            data[['timestamp', 'camera_id', 'alert_level', 'density']].tail(5)
         )
     else:
         st.info("No recent events")
@@ -1392,7 +1426,7 @@ def show_analytics_page():
                         annotation_text="Warning Threshold")
     fig_trend.add_hline(y=4.0, line_dash="dash", line_color="red", 
                         annotation_text="Critical Threshold")
-    st.plotly_chart(fig_trend, use_container_width=True)
+    st.plotly_chart(fig_trend)
     
     # Alert frequency analysis
     col1, col2 = st.columns(2)
@@ -1405,7 +1439,7 @@ def show_analytics_page():
             names=alert_counts.index,
             title="Alert Level Distribution"
         )
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie)
     
     with col2:
         st.subheader("Camera Performance")
@@ -1414,7 +1448,7 @@ def show_analytics_page():
             'alert_level': lambda x: (x != 'Normal').sum()
         }).round(2)
         camera_stats.columns = ['Avg Density', 'Max Density', 'Alert Count']
-        st.dataframe(camera_stats, use_container_width=True)
+        st.dataframe(camera_stats)
     
     # Heatmap by hour
     st.subheader("Density Heatmap by Hour")
@@ -1429,7 +1463,7 @@ def show_analytics_page():
             z='density',
             title="Average Density by Hour and Camera"
         )
-        st.plotly_chart(fig_heatmap, use_container_width=True)
+        st.plotly_chart(fig_heatmap)
 
 def show_settings_page():
     """System settings and configuration page"""
@@ -1565,7 +1599,7 @@ def show_system_status_page():
     ]
     
     status_df = pd.DataFrame(components)
-    st.dataframe(status_df, use_container_width=True)
+    st.dataframe(status_df)
     
     # Recent system logs
     st.subheader("Recent System Logs")
@@ -1578,7 +1612,7 @@ def show_system_status_page():
     ]
     
     logs_df = pd.DataFrame(logs)
-    st.dataframe(logs_df, use_container_width=True)
+    st.dataframe(logs_df)
     
     # System diagnostics
     st.subheader("System Diagnostics")

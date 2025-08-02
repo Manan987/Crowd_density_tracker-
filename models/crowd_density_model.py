@@ -93,13 +93,13 @@ class CrowdDensityEstimator:
         self.input_size = (224, 224)
         
     def _build_enhanced_model(self) -> nn.Module:
-        """Build enhanced CNN model with more layers and modern techniques"""
+        """Build enhanced CNN model with proper initialization and data types"""
         
         class EnhancedDensityNet(nn.Module):
             def __init__(self):
                 super(EnhancedDensityNet, self).__init__()
                 
-                # Initial feature extraction
+                # Initial feature extraction with proper initialization
                 self.conv1 = nn.Conv2d(3, 64, 7, stride=2, padding=3, bias=False)
                 self.bn1 = nn.BatchNorm2d(64)
                 self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
@@ -118,6 +118,23 @@ class CrowdDensityEstimator:
                 # Attention modules
                 self.attention1 = AttentionModule(512)
                 self.attention2 = AttentionModule(256)
+                
+                # Initialize weights properly
+                self._initialize_weights()
+            
+            def _initialize_weights(self):
+                """Initialize model weights to prevent type issues"""
+                for m in self.modules():
+                    if isinstance(m, nn.Conv2d):
+                        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                        if m.bias is not None:
+                            nn.init.constant_(m.bias, 0)
+                    elif isinstance(m, nn.BatchNorm2d):
+                        nn.init.constant_(m.weight, 1)
+                        nn.init.constant_(m.bias, 0)
+                    elif isinstance(m, nn.Linear):
+                        nn.init.normal_(m.weight, 0, 0.01)
+                        nn.init.constant_(m.bias, 0)
                 self.attention3 = AttentionModule(128)
                 
                 # Decoder with skip connections
@@ -209,28 +226,35 @@ class CrowdDensityEstimator:
         return model
     
     def preprocess_frame(self, frame: np.ndarray) -> torch.Tensor:
-        """Enhanced preprocessing with data augmentation capabilities"""
-        # Resize frame
-        resized = cv2.resize(frame, self.input_size)
-        
-        # Convert BGR to RGB
-        rgb_frame = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        
-        # Enhanced normalization with ImageNet statistics
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        
-        normalized = rgb_frame.astype(np.float32) / 255.0
-        normalized = (normalized - mean) / std
-        
-        # Convert to tensor and add batch dimension
-        tensor = torch.from_numpy(normalized).permute(2, 0, 1).unsqueeze(0)
-        
-        return tensor
+        """Enhanced preprocessing with proper data type handling"""
+        try:
+            # Resize frame
+            resized = cv2.resize(frame, self.input_size)
+            
+            # Convert BGR to RGB
+            rgb_frame = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+            
+            # Enhanced normalization with ImageNet statistics
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            
+            # Ensure proper float32 conversion
+            normalized = rgb_frame.astype(np.float32) / 255.0
+            normalized = (normalized - mean) / std
+            
+            # Convert to tensor with explicit float32 type
+            tensor = torch.from_numpy(normalized).float().permute(2, 0, 1).unsqueeze(0)
+            
+            return tensor
+            
+        except Exception as e:
+            print(f"Error in frame preprocessing: {e}")
+            # Return a zero tensor with correct shape and type
+            return torch.zeros(1, 3, self.input_size[1], self.input_size[0], dtype=torch.float32)
     
     def estimate_density(self, frame: np.ndarray) -> Tuple[np.ndarray, int]:
         """
-        Enhanced density estimation with improved post-processing
+        Enhanced density estimation with improved effectiveness and error handling
         
         Args:
             frame: Input video frame
@@ -239,64 +263,175 @@ class CrowdDensityEstimator:
             Tuple of (density_map, estimated_count)
         """
         try:
-            # Preprocess frame
+            # Validate input frame
+            if frame is None or frame.size == 0:
+                empty_map = np.zeros((224, 224), dtype=np.float32)
+                return empty_map, 0
+            
+            # Preprocess frame with proper type handling
             input_tensor = self.preprocess_frame(frame)
+            
+            # Ensure model is in evaluation mode and proper device
+            self.model.eval()
             
             # Run inference with gradient computation disabled
             with torch.no_grad():
+                # Ensure input tensor is float32
+                input_tensor = input_tensor.float()
                 density_map = self.model(input_tensor)
-                density_map = density_map.squeeze().cpu().numpy()
+                
+                # Convert to numpy with proper type handling
+                if isinstance(density_map, torch.Tensor):
+                    density_map = density_map.squeeze().cpu().numpy().astype(np.float32)
+                else:
+                    density_map = np.array(density_map, dtype=np.float32)
             
-            # Enhanced post-processing
+            # Enhanced post-processing for better effectiveness
             density_map = np.maximum(density_map, 0)  # Ensure non-negative values
             
-            # Apply Gaussian smoothing for better visual quality
-            density_map = cv2.GaussianBlur(density_map, (3, 3), 0.5)
+            # Apply adaptive filtering based on density values
+            if np.max(density_map) > 0:
+                # Normalize for better visualization
+                density_map = density_map / np.max(density_map)
+                
+                # Apply intelligent smoothing
+                kernel_size = 5 if np.mean(density_map) > 0.1 else 3
+                density_map = cv2.GaussianBlur(density_map, (kernel_size, kernel_size), 1.0)
             
-            # Resize density map to original frame size
+            # Resize density map to original frame size with proper interpolation
+            original_height, original_width = frame.shape[:2]
             density_map_resized = cv2.resize(
                 density_map, 
-                (frame.shape[1], frame.shape[0]),
-                interpolation=cv2.INTER_LINEAR
+                (original_width, original_height),
+                interpolation=cv2.INTER_CUBIC
             )
             
-            # Calculate total count with improved accuracy
-            estimated_count = int(np.sum(density_map_resized))
-            
-            # Apply enhanced crowd detection
+            # Improved crowd counting with multiple strategies
             crowd_count = self._enhanced_crowd_detection(frame, density_map_resized)
+            
+            # Ensure valid output types
+            density_map_resized = density_map_resized.astype(np.float32)
+            crowd_count = max(0, int(crowd_count))
             
             return density_map_resized, crowd_count
             
         except Exception as e:
             print(f"Error in density estimation: {e}")
-            # Return empty density map and zero count on error
-            empty_map = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.float32)
-            return empty_map, 0
+            # Return safe fallback values
+            try:
+                empty_map = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.float32)
+                return empty_map, 0
+            except:
+                # Ultimate fallback
+                empty_map = np.zeros((224, 224), dtype=np.float32)
+                return empty_map, 0
     
     def _enhanced_crowd_detection(self, frame: np.ndarray, density_map: np.ndarray) -> int:
         """
-        Enhanced crowd detection combining traditional CV and density map
+        Enhanced crowd detection with multiple algorithms and intelligent fusion
         """
-        # Traditional detection
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        # Filter contours by area
-        min_area = 300
-        max_area = 8000
-        valid_contours = [c for c in contours if min_area < cv2.contourArea(c) < max_area]
-        traditional_count = len(valid_contours)
-        
-        # Density-based count
-        density_count = int(np.sum(density_map))
-        
-        # Weighted combination
-        final_count = int(0.3 * traditional_count + 0.7 * density_count)
-        
-        return max(0, final_count)
+        try:
+            # Method 1: Density-based counting with adaptive thresholding
+            density_sum = np.sum(density_map)
+            density_mean = np.mean(density_map)
+            density_std = np.std(density_map)
+            
+            # Adaptive scaling based on density distribution
+            if density_std > 0:
+                density_threshold = density_mean + 0.5 * density_std
+                thresholded_map = np.where(density_map > density_threshold, density_map, 0)
+                density_count = int(np.sum(thresholded_map) * 2.5)  # Scaling factor
+            else:
+                density_count = int(density_sum * 1.5)
+            
+            # Method 2: Traditional computer vision approach
+            try:
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                
+                # Apply CLAHE for better contrast
+                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                enhanced = clahe.apply(gray)
+                
+                # Use adaptive threshold for better edge detection
+                blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+                edges = cv2.Canny(blurred, 30, 100)
+                
+                # Morphological operations to connect broken edges
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+                edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+                
+                # Find contours with hierarchy
+                contours, hierarchy = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                # Intelligent contour filtering
+                height, width = frame.shape[:2]
+                min_area = max(200, (height * width) // 5000)  # Adaptive minimum area
+                max_area = (height * width) // 20  # Adaptive maximum area
+                
+                valid_contours = []
+                for contour in contours:
+                    area = cv2.contourArea(contour)
+                    if min_area < area < max_area:
+                        # Additional shape analysis
+                        perimeter = cv2.arcLength(contour, True)
+                        if perimeter > 0:
+                            circularity = 4 * np.pi * area / (perimeter * perimeter)
+                            if 0.1 < circularity < 1.2:  # Filter out noise
+                                valid_contours.append(contour)
+                
+                traditional_count = len(valid_contours)
+                
+            except Exception:
+                traditional_count = 0
+            
+            # Method 3: Blob detection for person-like objects
+            try:
+                # Setup blob detector parameters
+                params = cv2.SimpleBlobDetector_Params()
+                params.filterByArea = True
+                params.minArea = max(100, (frame.shape[0] * frame.shape[1]) // 10000)
+                params.maxArea = (frame.shape[0] * frame.shape[1]) // 50
+                params.filterByCircularity = False
+                params.filterByConvexity = False
+                params.filterByInertia = True
+                params.minInertiaRatio = 0.2
+                
+                detector = cv2.SimpleBlobDetector_create(params)
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                keypoints = detector.detect(gray)
+                blob_count = len(keypoints)
+                
+            except Exception:
+                blob_count = 0
+            
+            # Intelligent fusion of all methods
+            counts = [density_count, traditional_count, blob_count]
+            
+            # Remove outliers (values too far from median)
+            if len(counts) >= 3:
+                median_count = np.median(counts)
+                filtered_counts = [c for c in counts if abs(c - median_count) <= 2 * median_count + 1]
+                if filtered_counts:
+                    counts = filtered_counts
+            
+            # Weighted average based on confidence
+            if density_sum > 0.01:  # High confidence in density map
+                final_count = int(0.6 * density_count + 0.3 * traditional_count + 0.1 * blob_count)
+            elif traditional_count > 0:  # Medium confidence in traditional methods
+                final_count = int(0.3 * density_count + 0.5 * traditional_count + 0.2 * blob_count)
+            else:  # Low confidence, use average
+                final_count = int(np.mean(counts)) if counts else 0
+            
+            # Apply reasonable bounds
+            max_reasonable_count = (frame.shape[0] * frame.shape[1]) // 2000  # Max people per pixel area
+            final_count = min(final_count, max_reasonable_count)
+            
+            return max(0, final_count)
+            
+        except Exception as e:
+            print(f"Error in enhanced crowd detection: {e}")
+            # Fallback to simple density sum
+            return max(0, int(np.sum(density_map) * 1.5))
     
     def generate_density_heatmap(self, density_map: np.ndarray) -> np.ndarray:
         """Generate a visual heatmap from density map"""
